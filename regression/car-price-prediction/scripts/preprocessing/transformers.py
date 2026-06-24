@@ -80,11 +80,12 @@ class RawStringParser(BaseEstimator, TransformerMixin):
 
 
 class FeatureEngineer(BaseEstimator, TransformerMixin):
-    """Drops bad rows, engineers brand and car_age, caps km_driven outliers."""
+    """Drops bad rows, engineers brand and car_age, caps km_driven outliers (both tails)."""
 
-    def __init__(self, rare_brand_threshold=20, km_cap_percentile=99):
+    def __init__(self, rare_brand_threshold=20, km_cap_percentile=99, km_floor=100):
         self.rare_brand_threshold = rare_brand_threshold
         self.km_cap_percentile = km_cap_percentile
+        self.km_floor = km_floor
         self._km_cap = None
         self._common_brands = None
 
@@ -107,6 +108,10 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
         )
 
         df["car_age"] = datetime.now().year - df["year"].astype(int)
+        # Implausibly low odometer readings (e.g. a 15-year-old car listed at 1 km)
+        # are data-entry errors, not real low-mileage cars. Flag as NaN so the
+        # downstream median imputer fills them — same convention as mileage==0.
+        df.loc[df["km_driven"] < self.km_floor, "km_driven"] = np.nan
         df["km_driven"] = df["km_driven"].clip(upper=self._km_cap)
 
         df = df.drop(columns=["name", "year"])

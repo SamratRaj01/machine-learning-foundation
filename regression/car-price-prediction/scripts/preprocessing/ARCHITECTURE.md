@@ -112,7 +112,9 @@ Used instead of raw `year` for two reasons:
 
 ### Outlier handling
 
-`km_driven` is capped at its 99th percentile (fitted on training data). The raw data contains values like 2,360,457 km which are physically implausible and would distort the model.
+`km_driven` is capped at its 99th percentile (fitted on training data) on the high end. The raw data contains values like 2,360,457 km which are physically implausible and would distort the model.
+
+On the low end, odometer readings below `km_floor` (default 100 km) are treated as data-entry errors — e.g. a 15-year-old car listed at 1 km is not a real low-mileage car. These are set to NaN and filled by the downstream median imputer, the same convention used for `mileage == 0` and `max_power == 0`. A fixed floor is used rather than a low percentile so that genuinely low-mileage recent cars are preserved.
 
 ### Dropped columns
 
@@ -181,6 +183,7 @@ Note: `brand_Jaguar`, `brand_Lexus`, and `brand_Volvo` were present in v1 but fe
 | `max_power = 0` | 6 rows | Literal `"0"` in raw data — entry error | Parsed 0 → NaN, imputed with median |
 | `torque > 800 Nm` | 23 rows | Format `"115@ 2,500(kgm@ rpm)"` misread as kgm — the `(kgm@ rpm)` is a label template, not the torque unit | Fallback: if result > 800, treat raw number as Nm |
 | `seats = 14` | 1 row | Data entry error (Maruti Ertiga max is 7) | `seats > 10` → NaN, imputed with median |
+| `km_driven = 1` | 1 row | Data entry error (a 2011 Maruti Eeco listed at 1 km) | `km_driven < 100` → NaN, imputed with median |
 | Raw duplicate rows | 1,202 rows | Same listing appears multiple times in source data | `drop_duplicates()` in FeatureEngineer |
 | Post-encoding duplicates | 16 rows | Different car names/variants with identical spec features | `drop_duplicates()` after ColumnTransformer output |
 

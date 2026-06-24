@@ -54,22 +54,39 @@ def get_output_columns(pipeline):
     return num_names + ord_names + ohe_names
 
 
-def fit_transform_to_dataframe(pipeline, df_raw):
-    """Fit pipeline and return a clean DataFrame with named columns."""
-    X_raw = df_raw.drop(columns=["selling_price"])
-    y = df_raw["selling_price"].copy()
+def transform_to_dataframe(pipeline, X_raw, y):
+    """Apply an ALREADY-FITTED pipeline to X_raw and reattach selling_price.
 
-    # Align index: drop rows removed by FeatureEngineer before fitting
-    fe = FeatureEngineer()
-    after_parse = RawStringParser().fit_transform(X_raw)
-    after_fe = fe.fit(after_parse).transform(after_parse)
+    This does NOT fit — it only learns nothing and applies the parameters the
+    pipeline already learned. Safe to call on a test/validation/inference split:
+    missing values are filled with the *training* median, etc. Call this once per
+    split (train and test) after the pipeline has been fit on the training split.
+
+    The row-dropping inside FeatureEngineer means the encoder's output has fewer
+    rows than X_raw. We run the fitted steps one at a time so we can capture which
+    original-row indices survived and align `y` to them.
+    """
+    parsed = pipeline.named_steps["parse_strings"].transform(X_raw)
+    after_fe = pipeline.named_steps["feature_engineer"].transform(parsed)
     valid_idx = after_fe.index
 
-    pipeline.fit(X_raw.loc[valid_idx])
-    X_clean = pipeline.transform(X_raw.loc[valid_idx])
-
+    X_clean = pipeline.named_steps["encode"].transform(after_fe)
     cols = get_output_columns(pipeline)
     df_clean = pd.DataFrame(X_clean, columns=cols, index=valid_idx)
     df_clean.insert(0, "selling_price", y.loc[valid_idx].values)
     df_clean = df_clean.drop_duplicates().reset_index(drop=True)
     return df_clean
+
+
+def fit_transform_to_dataframe(pipeline, df_raw):
+    """Fit on the full dataset, then clean it.
+
+    Convenience for producing the cleaned CSV for exploration. NOT leakage-safe
+    for modeling: it learns medians/caps/categories from every row. When you train
+    a model, split first, fit the pipeline on the training split only, then use
+    `transform_to_dataframe` on each split. See regression.ipynb.
+    """
+    X_raw = df_raw.drop(columns=["selling_price"])
+    y = df_raw["selling_price"].copy()
+    pipeline.fit(X_raw)
+    return transform_to_dataframe(pipeline, X_raw, y)
